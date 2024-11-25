@@ -7,10 +7,12 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
-	"strings"
 	"time"
+
+	"github.com/Arturomtz8/go-travel/db"
+	"github.com/Arturomtz8/go-travel/models"
+	"github.com/Arturomtz8/go-travel/services"
 )
 
 const (
@@ -32,6 +34,7 @@ type PostSlice struct {
 }
 
 type PostData struct {
+	ID                 string  `json:"id"`
 	Ups                int     `json:"ups"`
 	Title              string  `json:"title"`
 	SelfText           string  `json:"selftext"`
@@ -53,12 +56,13 @@ type PostData struct {
 }
 
 type Post struct {
-	Title       string
-	Text        string
-	Preview     string
-	Link        string
-	Ups         int
-	LocalImages []string
+	PostID  string
+	Title   string
+	Text    string
+	Preview string
+	Link    string
+	Ups     int
+	gcsPath []string
 }
 
 // the slice that will hold the recursive calls, at the beginning always set it to nil
@@ -66,111 +70,86 @@ type Post struct {
 var childrenSliceRecursive []PostSlice
 
 func main() {
-	_, err := getPosts("travel")
+	storageService, err := services.NewStorageService(os.Getenv("GoTravelBucketName"))
+	if err != nil {
+		log.Fatalf("Failed to initialize storage service: %v", err)
+	}
+
+	database, err := db.InitDB("reddit_posts.db")
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+
+	defer database.Close()
+
+	if err := database.CreateTables(); err != nil {
+		log.Fatalf("Failed to create tables: %v", err)
+	}
+
+	err = getPosts("travel", storageService, database)
 	if err != nil {
 		log.Fatalln(err)
 	}
 }
 
-func downloadImage(imageUrl, filepath string) error {
-	var cleanUrl string
-
-	parsedURL, err := url.Parse(imageUrl)
-	if err != nil {
-		return fmt.Errorf("error parsing URL: %v", err)
-	}
-
-	if strings.Contains(parsedURL.Host, "preview.redd.it") {
-		newURL := strings.Replace(imageUrl, "preview.redd.it", "i.redd.it", 1)
-		newURL = strings.Split(newURL, "?")[0]
-		cleanUrl = newURL
-		log.Printf("Modified URL to: %s", cleanUrl)
-	}
-
-	req, err := http.NewRequest("GET", cleanUrl, nil)
-	if err != nil {
-		return err
-	}
-
-	client := &http.Client{}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-	req.Header.Set("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("bad status: %s", resp.Status)
-	}
-
-	file, err := os.Create(filepath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	_, err = io.Copy(file, resp.Body)
-	if err != nil {
-		return fmt.Errorf("error copying content: %v", err)
-	}
-	return nil
-}
-
-func getPosts(subreddit string) ([]Post, error) {
-	var postsSlice []Post
+func getPosts(subreddit string, storageService *services.StorageService, database *db.Database) error {
 	currentTime := time.Now()
 	lastTwoMonths := currentTime.AddDate(0, 0, -180)
+	postsProcessed := 0
 
 	childrenSlice, err := makeRequest(subreddit, "no", timesToRecurse)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	log.Println("slice len of children", len(childrenSlice))
 	for _, child := range childrenSlice {
 		postScore := child.Data.Ups
 		createdDateUnix := child.Data.Created
 		createdDate := time.Time(time.Unix(int64(createdDateUnix), 0))
 
 		if postScore >= minPostScore && inTimeSpan(lastTwoMonths, currentTime, createdDate) {
-			// log.Println(createdDate)
 			child.Data.Link = "https://reddit.com" + child.Data.Link
 
-			var localImages []string
+			var gcsImages []string
 
 			if child.Data.IsGallery {
-				os.MkdirAll("images", 0755)
 				for i, item := range child.Data.GalleryData.Items {
 					if metadata, ok := child.Data.MediaMetadata[item.MediaID]; ok {
 						imgURL := metadata.S.U
-						filename := fmt.Sprintf("images/%s_%d.jpg", item.MediaID, i)
-						err := downloadImage(imgURL, filename)
+						gcsPath, err := storageService.UploadFromURL(imgURL,
+							child.Data.ID,
+							item.MediaID,
+							i)
 						if err != nil {
-							log.Printf("Failed to download image %s: %v", imgURL, err)
+							log.Printf("Failed to upload image %s: %v", imgURL, err)
 							continue
 						}
-						localImages = append(localImages, filename)
+						gcsImages = append(gcsImages, gcsPath)
 					}
 				}
 			}
 
-			post := Post{Ups: child.Data.Ups,
-				Title:       child.Data.Title,
-				Text:        child.Data.SelfText,
-				Preview:     child.Data.UrlOverridenByDest,
-				Link:        child.Data.Link,
-				LocalImages: localImages,
+			post := models.Post{
+				PostID:  child.Data.ID,
+				Ups:     child.Data.Ups,
+				Title:   child.Data.Title,
+				Text:    child.Data.SelfText,
+				Preview: child.Data.UrlOverridenByDest,
+				Link:    child.Data.Link,
+				GCSPath: gcsImages,
 			}
-			postsSlice = append(postsSlice, post)
+
+			if err := database.SavePost(&post); err != nil {
+				log.Printf("Failed to save post %s: %v", post.PostID, err)
+				continue
+			}
+			postsProcessed++
 		}
 	}
-	if len(postsSlice) == 0 {
+	if postsProcessed == 0 {
 		err := errors.New("No interesting posts in subreddit")
-		return nil, err
+		return err
 	}
-	return postsSlice, nil
+	return nil
 }
 
 func makeRequest(subreddit, after string, iteration int) ([]PostSlice, error) {
@@ -186,7 +165,6 @@ func makeRequest(subreddit, after string, iteration int) ([]PostSlice, error) {
 		return childrenSliceRecursive, nil
 	}
 
-	log.Println("number of iteration", iteration)
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", subredditUrl, nil)
 	if err != nil {
@@ -221,7 +199,6 @@ func makeRequest(subreddit, after string, iteration int) ([]PostSlice, error) {
 	}
 
 	defer resp.Body.Close()
-	log.Printf("inside recursion len of slice after append and into another recursion: %d\n", len(childrenSliceRecursive))
 	makeRequest(subreddit, jsonResponse.Data.Offset, iteration-1)
 	return childrenSliceRecursive, nil
 
