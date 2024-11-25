@@ -57,6 +57,16 @@ func (db *Database) CreateTables() error {
 	return nil
 }
 
+func (db *Database) PostExists(postID string) (bool, error) {
+	var exists bool
+	query := "SELECT EXISTS(SELECT 1 FROM posts WHERE id = ?)"
+	err := db.QueryRow(query, postID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("error checking post existence: %v", err)
+	}
+	return exists, nil
+}
+
 func (db *Database) SavePost(post *models.Post) error {
 	tx, err := db.Begin()
 	if err != nil {
