@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Arturomtz8/go-travel/db"
@@ -99,7 +100,19 @@ func GetPosts(subreddit string, storageService *services.StorageService, databas
 			var gcsImages []string
 			child.Data.Link = "https://reddit.com" + child.Data.Link
 
-			if child.Data.IsGallery {
+			if child.Data.UrlOverridenByDest != "" && isImageURL(child.Data.UrlOverridenByDest) {
+				gcsPath, err := storageService.UploadFromURL(
+					child.Data.UrlOverridenByDest,
+					child.Data.ID,
+					"single",
+					0,
+				)
+				if err != nil {
+					log.Printf("Failed to upload image %s: %v", child.Data.UrlOverridenByDest, err)
+				} else {
+					gcsImages = append(gcsImages, gcsPath)
+				}
+			} else if child.Data.IsGallery {
 				for i, item := range child.Data.GalleryData.Items {
 					if metadata, ok := child.Data.MediaMetadata[item.MediaID]; ok {
 						imgURL := metadata.S.U
@@ -196,4 +209,18 @@ func makeRequest(subreddit, after string, iteration int) ([]PostSlice, error) {
 
 func inTimeSpan(pastTime, currentTime, check time.Time) bool {
 	return check.After(pastTime) && check.Before(currentTime)
+}
+
+func isImageURL(url string) bool {
+	// Check common image extensions
+	extensions := []string{".jpg", ".jpeg", ".png", ".gif"}
+	lowercaseURL := strings.ToLower(url)
+
+	for _, ext := range extensions {
+		if strings.HasSuffix(lowercaseURL, ext) {
+			return true
+		}
+	}
+
+	return false
 }
