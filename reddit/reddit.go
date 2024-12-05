@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	timesToRecurse int = 2
+	timesToRecurse int = 1
 	minPostScore   int = 50
-	minusDays      int = 280
+	minusDays      int = 60
 )
 
 type JSONResponse struct {
@@ -212,7 +212,6 @@ func inTimeSpan(pastTime, currentTime, check time.Time) bool {
 }
 
 func isImageURL(url string) bool {
-	// Check common image extensions
 	extensions := []string{".jpg", ".jpeg", ".png", ".gif"}
 	lowercaseURL := strings.ToLower(url)
 

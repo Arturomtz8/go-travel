@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"cloud.google.com/go/storage"
+	"github.com/Arturomtz8/go-travel/utils"
 )
 
 type StorageService struct {
@@ -78,20 +79,28 @@ func (s *StorageService) UploadFromURL(imageURL string, postID string, mediaID s
 		return "", fmt.Errorf("bad status: %s", resp.Status)
 	}
 
-	objectName := fmt.Sprintf("posts/%s/%s_%d.jpg", postID, mediaID, index)
+	imageData, err := io.ReadAll(resp.Body)
+	imageDataCompressed, err := utils.CompressData(imageData)
+	if err != nil {
+		return "", fmt.Errorf("error compressing image data: %v", err)
+	}
+	objectName := fmt.Sprintf("posts/%s/%s_%d.jpg.gz", postID, mediaID, index)
 	bucket := s.client.Bucket(s.bucketName)
 	obj := bucket.Object(objectName)
 
 	writer := obj.NewWriter(s.ctx)
+	writer.ContentType = "application/gzip"
 
-	if _, err := io.Copy(writer, resp.Body); err != nil {
-		return "", fmt.Errorf("io.Copy: %v", err)
+	if _, err := writer.Write(imageDataCompressed); err != nil {
+		writer.Close()
+		return "", fmt.Errorf("error writing compressed data: %v", err)
 	}
 
 	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("Writer.Close: %v", err)
+		return "", fmt.Errorf("error closing GCS writer: %v", err)
 	}
 
+	log.Printf("Final size in GCS: %d bytes", writer.Attrs().Size)
 	return fmt.Sprintf("gs://%s/%s", s.bucketName, objectName), nil
 
 }
