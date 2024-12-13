@@ -17,8 +17,8 @@ import (
 
 const (
 	timesToRecurse int = 2
-	minPostScore   int = 50
-	minusDays      int = 280
+	minPostScore   int = 100
+	minusDays      int = 120
 )
 
 type JSONResponse struct {
