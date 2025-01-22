@@ -212,7 +212,6 @@ func inTimeSpan(pastTime, currentTime, check time.Time) bool {
 }
 
 func isImageURL(url string) bool {
-	// Check common image extensions
 	extensions := []string{".jpg", ".jpeg", ".png", ".gif"}
 	lowercaseURL := strings.ToLower(url)
 
