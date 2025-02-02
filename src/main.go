@@ -4,9 +4,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/Arturomtz8/go-travel/db"
-	"github.com/Arturomtz8/go-travel/reddit"
-	"github.com/Arturomtz8/go-travel/services"
+	"github.com/Arturomtz8/go-travel/src/db"
+	"github.com/Arturomtz8/go-travel/src/reddit"
+	"github.com/Arturomtz8/go-travel/src/services"
 )
 
 func main() {

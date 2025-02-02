@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Arturomtz8/go-travel/db"
-	"github.com/Arturomtz8/go-travel/models"
-	"github.com/Arturomtz8/go-travel/services"
+	"github.com/Arturomtz8/go-travel/src/db"
+	"github.com/Arturomtz8/go-travel/src/models"
+	"github.com/Arturomtz8/go-travel/src/services"
 )
 
 const (

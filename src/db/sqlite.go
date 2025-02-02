@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/Arturomtz8/go-travel/models"
+	"github.com/Arturomtz8/go-travel/src/models"
 	_ "github.com/mattn/go-sqlite3"
 )
 
