@@ -1,6 +1,7 @@
 package reddit
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,9 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Arturomtz8/go-travel/src/db"
-	"github.com/Arturomtz8/go-travel/src/models"
-	"github.com/Arturomtz8/go-travel/src/services"
+	"github.com/Arturomtz8/go-travel/src/storage" // Updated import
 )
 
 const (
@@ -56,21 +55,10 @@ type PostData struct {
 	} `json:"gallery_data"`
 }
 
-type Post struct {
-	PostID  string
-	Title   string
-	Text    string
-	Preview string
-	Link    string
-	Ups     int
-	gcsPath []string
-}
-
-// the slice that will hold the recursive calls, at the beginning always set it to nil
-// because it can have the results from previous queries
+// the slice that will hold the recursive calls
 var childrenSliceRecursive []PostSlice
 
-func GetPosts(subreddit string, storageService *services.StorageService, database *db.Database) error {
+func GetPosts(ctx context.Context, subreddit string, storageService *storage.StorageService) error {
 	currentTime := time.Now()
 	pastTime := currentTime.AddDate(0, 0, -minusDays)
 	postsProcessed := 0
@@ -80,16 +68,18 @@ func GetPosts(subreddit string, storageService *services.StorageService, databas
 	if err != nil {
 		return err
 	}
+
 	for _, child := range childrenSlice {
-		exists, err := database.PostExists(child.Data.ID)
+		exists, err := storageService.PostExists(ctx, child.Data.ID)
 		if exists {
-			log.Printf("Skipping post %s: already exists in database", child.Data.ID)
+			log.Printf("Skipping post %s: already exists in storage", child.Data.ID)
 			postsSkipped++
 			continue
 		}
+
 		postScore := child.Data.Ups
 		createdDateUnix := child.Data.Created
-		createdDate := time.Time(time.Unix(int64(createdDateUnix), 0))
+		createdDate := time.Unix(int64(createdDateUnix), 0)
 
 		if postScore >= minPostScore && inTimeSpan(pastTime, currentTime, createdDate) {
 			if err != nil {
@@ -100,6 +90,7 @@ func GetPosts(subreddit string, storageService *services.StorageService, databas
 			var gcsImages []string
 			child.Data.Link = "https://reddit.com" + child.Data.Link
 
+			// Handle single image
 			if child.Data.UrlOverridenByDest != "" && isImageURL(child.Data.UrlOverridenByDest) {
 				gcsPath, err := storageService.UploadFromURL(
 					child.Data.UrlOverridenByDest,
@@ -113,13 +104,16 @@ func GetPosts(subreddit string, storageService *services.StorageService, databas
 					gcsImages = append(gcsImages, gcsPath)
 				}
 			} else if child.Data.IsGallery {
+				// Handle gallery
 				for i, item := range child.Data.GalleryData.Items {
 					if metadata, ok := child.Data.MediaMetadata[item.MediaID]; ok {
 						imgURL := metadata.S.U
-						gcsPath, err := storageService.UploadFromURL(imgURL,
+						gcsPath, err := storageService.UploadFromURL(
+							imgURL,
 							child.Data.ID,
 							item.MediaID,
-							i)
+							i,
+						)
 						if err != nil {
 							log.Printf("Failed to upload image %s: %v", imgURL, err)
 							continue
@@ -129,27 +123,31 @@ func GetPosts(subreddit string, storageService *services.StorageService, databas
 				}
 			}
 
-			post := models.Post{
+			// Create post for storage
+			post := &storage.Post{
 				PostID:  child.Data.ID,
-				Ups:     child.Data.Ups,
 				Title:   child.Data.Title,
 				Text:    child.Data.SelfText,
-				Preview: child.Data.UrlOverridenByDest,
 				Link:    child.Data.Link,
+				Ups:     child.Data.Ups,
+				Preview: child.Data.UrlOverridenByDest,
 				GCSPath: gcsImages,
 			}
 
-			if err := database.SavePost(&post); err != nil {
+			// Save post metadata to GCS
+			if err := storageService.SavePost(ctx, post); err != nil {
 				log.Printf("Failed to save post %s: %v", post.PostID, err)
 				continue
 			}
 			postsProcessed++
 		}
 	}
+
 	if postsProcessed == 0 {
 		log.Printf("Didn't process any post. Posts skipped: %v", postsSkipped)
 		return nil
 	}
+
 	log.Printf("Successfully processed %d new posts, skipped %d existing posts",
 		postsProcessed, postsSkipped)
 	return nil
@@ -187,6 +185,7 @@ func makeRequest(subreddit, after string, iteration int) ([]PostSlice, error) {
 	if resp.Status != "200 OK" {
 		return childrenSliceRecursive, errors.New("Too many requests, try again later")
 	}
+
 	err = json.Unmarshal(body, &jsonResponse)
 	if err != nil {
 		return childrenSliceRecursive, err
@@ -204,7 +203,6 @@ func makeRequest(subreddit, after string, iteration int) ([]PostSlice, error) {
 	defer resp.Body.Close()
 	makeRequest(subreddit, jsonResponse.Data.Offset, iteration-1)
 	return childrenSliceRecursive, nil
-
 }
 
 func inTimeSpan(pastTime, currentTime, check time.Time) bool {
@@ -212,14 +210,29 @@ func inTimeSpan(pastTime, currentTime, check time.Time) bool {
 }
 
 func isImageURL(url string) bool {
-	extensions := []string{".jpg", ".jpeg", ".png", ".gif"}
-	lowercaseURL := strings.ToLower(url)
-
-	for _, ext := range extensions {
-		if strings.HasSuffix(lowercaseURL, ext) {
-			return true
-		}
+	if url == "" {
+		return false
 	}
 
-	return false
+	// Special handling for known Reddit image domains
+	if strings.Contains(url, "i.redd.it") ||
+		strings.Contains(url, "preview.redd.it") {
+		return true
+	}
+
+	// Create a client with timeout
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	// Make HEAD request
+	resp, err := client.Head(url)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	// Check content type
+	contentType := resp.Header.Get("Content-Type")
+	return strings.HasPrefix(contentType, "image/")
 }

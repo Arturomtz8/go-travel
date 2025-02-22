@@ -1,32 +1,26 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 
-	"github.com/Arturomtz8/go-travel/src/db"
 	"github.com/Arturomtz8/go-travel/src/reddit"
-	"github.com/Arturomtz8/go-travel/src/services"
+	"github.com/Arturomtz8/go-travel/src/sr"
 )
 
 func main() {
-	storageService, err := services.NewStorageService(os.Getenv("GoTravelBucketName"))
+	ctx := context.Background()
+
+	// Initialize storage service
+	storageService, err := sr.NewStorageService(os.Getenv("GoTravelBucketName"))
 	if err != nil {
 		log.Fatalf("Failed to initialize storage service: %v", err)
 	}
+	defer storageService.Close()
 
-	database, err := db.InitDB("reddit_posts.db")
-	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
-	}
-
-	defer database.Close()
-
-	if err := database.CreateTables(); err != nil {
-		log.Fatalf("Failed to create tables: %v", err)
-	}
-
-	err = reddit.GetPosts("travel", storageService, database)
+	// Get posts from Reddit
+	err = reddit.GetPosts(ctx, "travel", storageService)
 	if err != nil {
 		log.Fatalln(err)
 	}
