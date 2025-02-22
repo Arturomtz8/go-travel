@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Arturomtz8/go-travel/src/models"
 	"github.com/Arturomtz8/go-travel/src/storage" // Updated import
 )
 
@@ -124,7 +125,7 @@ func GetPosts(ctx context.Context, subreddit string, storageService *storage.Sto
 			}
 
 			// Create post for storage
-			post := &storage.Post{
+			post := &models.Post{
 				PostID:  child.Data.ID,
 				Title:   child.Data.Title,
 				Text:    child.Data.SelfText,
