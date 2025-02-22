@@ -107,23 +107,23 @@ func GetPosts(ctx context.Context, subreddit string, storageService *storage.Sto
 						gcsImages = append(gcsImages, gcsPath)
 					}
 				}
-			}
+				post := &models.Post{
+					PostID:  child.Data.ID,
+					Title:   child.Data.Title,
+					Text:    child.Data.SelfText,
+					Link:    child.Data.Link,
+					Ups:     child.Data.Ups,
+					Preview: child.Data.UrlOverridenByDest,
+					GCSPath: gcsImages,
+				}
 
-			post := &models.Post{
-				PostID:  child.Data.ID,
-				Title:   child.Data.Title,
-				Text:    child.Data.SelfText,
-				Link:    child.Data.Link,
-				Ups:     child.Data.Ups,
-				Preview: child.Data.UrlOverridenByDest,
-				GCSPath: gcsImages,
+				if err := storageService.SavePost(ctx, post); err != nil {
+					log.Printf("Failed to save post %s: %v", post.PostID, err)
+					continue
+				}
+				postsProcessed++
+				log.Printf("Posts processed: %v", postsProcessed)
 			}
-
-			if err := storageService.SavePost(ctx, post); err != nil {
-				log.Printf("Failed to save post %s: %v", post.PostID, err)
-				continue
-			}
-			postsProcessed++
 		}
 	}
 

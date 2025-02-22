@@ -124,18 +124,7 @@ func (s *StorageService) PostExists(ctx context.Context, postID string) (bool, e
 
 func (s *StorageService) SavePost(ctx context.Context, post *models.Post) error {
 	bucket := s.client.Bucket(s.bucketName)
-
-	postData := Post{
-		PostID:  post.PostID,
-		Title:   post.Title,
-		Text:    post.Text,
-		Link:    post.Link,
-		Ups:     post.Ups,
-		Preview: post.Preview,
-		GCSPath: post.GCSPath,
-	}
-
-	jsonData, err := json.Marshal(postData)
+	jsonData, err := json.Marshal(post)
 	if err != nil {
 		return fmt.Errorf("error marshaling post data: %v", err)
 	}
