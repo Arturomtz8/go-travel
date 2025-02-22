@@ -53,7 +53,6 @@ func NewStorageService(bucketName string) (*StorageService, error) {
 	return s, nil
 }
 
-// ensureBucketExists checks if the bucket exists and creates it if it doesn't
 func (s *StorageService) ensureBucketExists(projectID string) error {
 	bucket := s.client.Bucket(s.bucketName)
 	_, err := bucket.Attrs(s.ctx)
@@ -220,7 +219,6 @@ func (s *StorageService) Close() error {
 	return s.client.Close()
 }
 
-// cleanRedditURL cleans Reddit preview URLs
 func cleanRedditURL(imageURL string) string {
 	parsedURL, err := url.Parse(imageURL)
 	if err != nil {

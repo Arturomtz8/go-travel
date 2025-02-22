@@ -8,11 +8,10 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/Arturomtz8/go-travel/src/models"
-	"github.com/Arturomtz8/go-travel/src/storage" // Updated import
+	"github.com/Arturomtz8/go-travel/src/storage"
 )
 
 const (
@@ -20,6 +19,9 @@ const (
 	minPostScore   int = 100
 	minusDays      int = 120
 )
+
+// the slice that will hold the recursive calls
+var childrenSliceRecursive []PostSlice
 
 type JSONResponse struct {
 	Data Data `json:"data"`
@@ -56,9 +58,6 @@ type PostData struct {
 	} `json:"gallery_data"`
 }
 
-// the slice that will hold the recursive calls
-var childrenSliceRecursive []PostSlice
-
 func GetPosts(ctx context.Context, subreddit string, storageService *storage.StorageService) error {
 	currentTime := time.Now()
 	pastTime := currentTime.AddDate(0, 0, -minusDays)
@@ -91,21 +90,7 @@ func GetPosts(ctx context.Context, subreddit string, storageService *storage.Sto
 			var gcsImages []string
 			child.Data.Link = "https://reddit.com" + child.Data.Link
 
-			// Handle single image
-			if child.Data.UrlOverridenByDest != "" && isImageURL(child.Data.UrlOverridenByDest) {
-				gcsPath, err := storageService.UploadFromURL(
-					child.Data.UrlOverridenByDest,
-					child.Data.ID,
-					"single",
-					0,
-				)
-				if err != nil {
-					log.Printf("Failed to upload image %s: %v", child.Data.UrlOverridenByDest, err)
-				} else {
-					gcsImages = append(gcsImages, gcsPath)
-				}
-			} else if child.Data.IsGallery {
-				// Handle gallery
+			if child.Data.IsGallery {
 				for i, item := range child.Data.GalleryData.Items {
 					if metadata, ok := child.Data.MediaMetadata[item.MediaID]; ok {
 						imgURL := metadata.S.U
@@ -124,7 +109,6 @@ func GetPosts(ctx context.Context, subreddit string, storageService *storage.Sto
 				}
 			}
 
-			// Create post for storage
 			post := &models.Post{
 				PostID:  child.Data.ID,
 				Title:   child.Data.Title,
@@ -135,7 +119,6 @@ func GetPosts(ctx context.Context, subreddit string, storageService *storage.Sto
 				GCSPath: gcsImages,
 			}
 
-			// Save post metadata to GCS
 			if err := storageService.SavePost(ctx, post); err != nil {
 				log.Printf("Failed to save post %s: %v", post.PostID, err)
 				continue
@@ -208,32 +191,4 @@ func makeRequest(subreddit, after string, iteration int) ([]PostSlice, error) {
 
 func inTimeSpan(pastTime, currentTime, check time.Time) bool {
 	return check.After(pastTime) && check.Before(currentTime)
-}
-
-func isImageURL(url string) bool {
-	if url == "" {
-		return false
-	}
-
-	// Special handling for known Reddit image domains
-	if strings.Contains(url, "i.redd.it") ||
-		strings.Contains(url, "preview.redd.it") {
-		return true
-	}
-
-	// Create a client with timeout
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	// Make HEAD request
-	resp, err := client.Head(url)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-
-	// Check content type
-	contentType := resp.Header.Get("Content-Type")
-	return strings.HasPrefix(contentType, "image/")
 }
