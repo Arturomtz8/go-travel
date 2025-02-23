@@ -1,0 +1,11 @@
+[project]
+name = "explorer"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "gcsfs>=2025.2.0",
+    "st-files-connection>=0.1.0",
+    "streamlit>=1.42.2",
+]
