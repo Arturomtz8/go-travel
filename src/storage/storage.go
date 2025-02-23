@@ -71,7 +71,7 @@ func (s *StorageService) ensureBucketExists(projectID string) error {
 	return nil
 }
 
-func (s *StorageService) UploadFromURL(imageURL string, postID string, mediaID string, index int) (string, error) {
+func (s *StorageService) UploadFromURL(subreddit string, imageURL string, postID string, mediaID string, index int) (string, error) {
 	cleanURL := cleanRedditURL(imageURL)
 	req, err := http.NewRequest("GET", cleanURL, nil)
 	if err != nil {
@@ -92,7 +92,7 @@ func (s *StorageService) UploadFromURL(imageURL string, postID string, mediaID s
 		return "", fmt.Errorf("bad status: %s", resp.Status)
 	}
 
-	objectName := fmt.Sprintf("posts/%s/%s_%d.jpg", postID, mediaID, index)
+	objectName := fmt.Sprintf("posts/%s/%s/%s_%d.jpg", subreddit, postID, mediaID, index)
 	bucket := s.client.Bucket(s.bucketName)
 	obj := bucket.Object(objectName)
 	writer := obj.NewWriter(s.ctx)
@@ -108,11 +108,11 @@ func (s *StorageService) UploadFromURL(imageURL string, postID string, mediaID s
 	return fmt.Sprintf("gs://%s/%s", s.bucketName, objectName), nil
 }
 
-func (s *StorageService) PostExists(ctx context.Context, postID string) (bool, error) {
+func (s *StorageService) PostExists(subreddit string, postID string) (bool, error) {
 	bucket := s.client.Bucket(s.bucketName)
-	obj := bucket.Object(path.Join("posts", postID, "metadata.json"))
+	obj := bucket.Object(path.Join("posts", subreddit, postID, "metadata.json"))
 
-	_, err := obj.Attrs(ctx)
+	_, err := obj.Attrs(s.ctx)
 	if err == storage.ErrObjectNotExist {
 		return false, nil
 	}
@@ -122,15 +122,15 @@ func (s *StorageService) PostExists(ctx context.Context, postID string) (bool, e
 	return true, nil
 }
 
-func (s *StorageService) SavePost(ctx context.Context, post *models.Post) error {
+func (s *StorageService) SavePost(subreddit string, post *models.Post) error {
 	bucket := s.client.Bucket(s.bucketName)
 	jsonData, err := json.Marshal(post)
 	if err != nil {
 		return fmt.Errorf("error marshaling post data: %v", err)
 	}
 
-	obj := bucket.Object(path.Join("posts", post.PostID, "metadata.json"))
-	writer := obj.NewWriter(ctx)
+	obj := bucket.Object(path.Join("posts", subreddit, post.PostID, "metadata.json"))
+	writer := obj.NewWriter(s.ctx)
 
 	if _, err := writer.Write(jsonData); err != nil {
 		writer.Close()
@@ -144,11 +144,11 @@ func (s *StorageService) SavePost(ctx context.Context, post *models.Post) error 
 	return nil
 }
 
-func (s *StorageService) GetPost(ctx context.Context, postID string) (*Post, error) {
+func (s *StorageService) GetPost(subreddit string, postID string) (*Post, error) {
 	bucket := s.client.Bucket(s.bucketName)
-	obj := bucket.Object(path.Join("posts", postID, "metadata.json"))
+	obj := bucket.Object(path.Join("posts", subreddit, postID, "metadata.json"))
 
-	reader, err := obj.NewReader(ctx)
+	reader, err := obj.NewReader(s.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error creating reader: %v", err)
 	}
@@ -162,15 +162,16 @@ func (s *StorageService) GetPost(ctx context.Context, postID string) (*Post, err
 	return &post, nil
 }
 
-func (s *StorageService) ListPosts(ctx context.Context) ([]Post, error) {
+func (s *StorageService) ListPosts(subreddit string) ([]Post, error) {
 	bucket := s.client.Bucket(s.bucketName)
+	prefix := fmt.Sprintf("posts/%s/", subreddit)
 	query := &storage.Query{
-		Prefix:    "posts/",
+		Prefix:    prefix,
 		Delimiter: "/",
 	}
 
 	var posts []Post
-	it := bucket.Objects(ctx, query)
+	it := bucket.Objects(s.ctx, query)
 
 	for {
 		attrs, err := it.Next()
@@ -186,7 +187,7 @@ func (s *StorageService) ListPosts(ctx context.Context) ([]Post, error) {
 		}
 
 		obj := bucket.Object(attrs.Name)
-		reader, err := obj.NewReader(ctx)
+		reader, err := obj.NewReader(s.ctx)
 		if err != nil {
 			return nil, fmt.Errorf("error reading post %s: %v", attrs.Name, err)
 		}

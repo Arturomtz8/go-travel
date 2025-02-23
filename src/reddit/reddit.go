@@ -70,7 +70,7 @@ func GetPosts(ctx context.Context, subreddit string, storageService *storage.Sto
 	}
 
 	for _, child := range childrenSlice {
-		exists, err := storageService.PostExists(ctx, child.Data.ID)
+		exists, err := storageService.PostExists(subreddit, child.Data.ID)
 		if exists {
 			log.Printf("Skipping post %s: already exists in storage", child.Data.ID)
 			postsSkipped++
@@ -95,6 +95,7 @@ func GetPosts(ctx context.Context, subreddit string, storageService *storage.Sto
 					if metadata, ok := child.Data.MediaMetadata[item.MediaID]; ok {
 						imgURL := metadata.S.U
 						gcsPath, err := storageService.UploadFromURL(
+							subreddit,
 							imgURL,
 							child.Data.ID,
 							item.MediaID,
@@ -117,7 +118,7 @@ func GetPosts(ctx context.Context, subreddit string, storageService *storage.Sto
 					GCSPath: gcsImages,
 				}
 
-				if err := storageService.SavePost(ctx, post); err != nil {
+				if err := storageService.SavePost(subreddit, post); err != nil {
 					log.Printf("Failed to save post %s: %v", post.PostID, err)
 					continue
 				}

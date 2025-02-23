@@ -18,7 +18,7 @@ func main() {
 	}
 	defer storageService.Close()
 
-	err = reddit.GetPosts(ctx, "travel", storageService)
+	err = reddit.GetPosts(ctx, "rome", storageService)
 	if err != nil {
 		log.Fatalln(err)
 	}
