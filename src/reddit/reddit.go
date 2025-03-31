@@ -16,8 +16,8 @@ import (
 
 const (
 	timesToRecurse int = 2
-	minPostScore   int = 100
-	minusDays      int = 120
+	minPostScore   int = 60
+	minusDays      int = 720
 )
 
 // the slice that will hold the recursive calls
@@ -59,6 +59,7 @@ type PostData struct {
 }
 
 func GetPosts(ctx context.Context, subreddit string, storageService *storage.StorageService) error {
+	log.Printf("subreddit chosen %s", subreddit)
 	currentTime := time.Now()
 	pastTime := currentTime.AddDate(0, 0, -minusDays)
 	postsProcessed := 0

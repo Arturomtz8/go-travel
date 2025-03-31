@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"math/rand"
 	"os"
+	"time"
 
 	"github.com/Arturomtz8/go-travel/src/reddit"
 	"github.com/Arturomtz8/go-travel/src/storage"
@@ -18,7 +20,22 @@ func main() {
 	}
 	defer storageService.Close()
 
-	err = reddit.GetPosts(ctx, "rome", storageService)
+	subreddits := []string{
+		"travel",
+		"solotravel",
+		"remoteplaces",
+		"ruralporn",
+		"rome",
+		"travelphotos",
+		"fujifilm",
+		"travelphotography",
+	}
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	randomIndex := r.Intn(len(subreddits))
+	randomSubreddit := subreddits[randomIndex]
+	err = reddit.GetPosts(ctx, randomSubreddit, storageService)
 	if err != nil {
 		log.Fatalln(err)
 	}
