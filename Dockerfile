@@ -17,4 +17,4 @@ VOLUME /app/data
 EXPOSE 5000
 
 
-ENTRYPOINT ["./etl-script"]
+ENTRYPOINT ["./etl-script-reddit"]
