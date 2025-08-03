@@ -14,13 +14,13 @@ from tqdm import tqdm
 # Initialize HEIF support for Pillow
 register_heif_opener()
 
-class GoogleDriveHEICConverter:
+class GoogleDriveImageProcessor:
     def __init__(self, output_folder, target_format="JPEG", quality=100, subsampling=0):
         self.SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
         self.output_folder = Path(output_folder)
         self.target_format = target_format.upper()
-        self.quality = quality  # 1-100 for JPEG/WEBP, compression level for PNG
-        self.subsampling = subsampling  # 0=best, 1=medium, 2=worst quality
+        self.quality = quality
+        self.subsampling = subsampling
         self.service = self.authenticate_with_service_account()
 
     def authenticate_with_service_account(self):
@@ -40,13 +40,18 @@ class GoogleDriveHEICConverter:
         )
         return build('drive', 'v3', credentials=creds)
 
-    def get_heic_files(self, folder_id):
+    def get_image_files(self, folder_id):
         query = (
             f"'{folder_id}' in parents and "
             "(mimeType='image/heic' or "
             "mimeType='image/heif' or "
+            "mimeType='image/jpeg' or "
             "name contains '.heic' or "
-            "name contains '.HEIC')"
+            "name contains '.HEIC' or "
+            "name contains '.jpg' or "
+            "name contains '.JPG' or "
+            "name contains '.jpeg' or "
+            "name contains '.JPEG')"
         )
         results = self.service.files().list(
             q=query,
@@ -70,15 +75,22 @@ class GoogleDriveHEICConverter:
         fh.seek(0)
         return fh
 
-    def convert_image(self, file_stream, original_name):
+    def process_image(self, file_stream, original_name):
+        self.output_folder.mkdir(parents=True, exist_ok=True)
+        lower_name = original_name.lower()
+        
+        if lower_name.endswith(('.jpg', '.jpeg')):
+            output_path = self.output_folder / original_name
+            with open(output_path, 'wb') as f:
+                f.write(file_stream.getvalue())
+            return True, output_path
+        
         try:
-            self.output_folder.mkdir(parents=True, exist_ok=True)
             output_name = original_name.rsplit('.', 1)[0] + f'.{self.target_format.lower()}'
             output_path = self.output_folder / output_name
             
             img = Image.open(file_stream)
             
-            # Convert to RGB if needed (JPEG doesn't support alpha channel)
             if img.mode in ('RGBA', 'LA', 'P'):
                 img = img.convert('RGB')
             elif img.mode == 'I;16':
@@ -89,50 +101,47 @@ class GoogleDriveHEICConverter:
                 'quality': self.quality,
             }
             
-            # Format-specific optimization
             if self.target_format == 'JPEG':
                 save_kwargs.update({
-                    'subsampling': self.subsampling,  # 0 for best quality
+                    'subsampling': self.subsampling,
                     'optimize': True,
-                    'progressive': False,  # Baseline JPEG for maximum compatibility
+                    'progressive': False,
                 })
             elif self.target_format == 'PNG':
                 save_kwargs.update({
-                    'compress_level': 9 - round((self.quality / 100) * 9),  # Convert 0-100 to 0-9
+                    'compress_level': 9 - round((self.quality / 100) * 9),
                 })
             elif self.target_format == 'WEBP':
                 save_kwargs.update({
-                    'method': 6,  # 0=fast, 6=best quality
+                    'method': 6,
                     'lossless': False,
                 })
             
             img.save(output_path, **save_kwargs)
-            
             return True, output_path
         except Exception as e:
             return False, str(e)
 
     def process_folder(self, folder_id):
-        """Process all HEIC/HEIF files in a Google Drive folder"""
-        files = self.get_heic_files(folder_id)
+        files = self.get_image_files(folder_id)
         
         if not files:
-            print("No HEIC/HEIF files found in the specified folder.")
+            print("No image files found in the specified folder.")
             return
         
-        print(f"Found {len(files)} HEIC/HEIF files to process:")
+        print(f"Found {len(files)} image files to process:")
         
         for file in files:
             print(f"\nProcessing: {file['name']}")
             
             try:
                 file_stream = self.download_file(file['id'], file['name'])
-                success, result = self.convert_image(file_stream, file['name'])
+                success, result = self.process_image(file_stream, file['name'])
                 
                 if success:
-                    print(f"Successfully converted to: {result}")
+                    print(f"Successfully processed: {result}")
                 else:
-                    print(f"Conversion failed: {result}")
+                    print(f"Processing failed: {result}")
                     break
                     
             except Exception as e:
@@ -141,23 +150,23 @@ class GoogleDriveHEICConverter:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Convert HEIC/HEIF images from Google Drive to other formats with maximum quality"
+        description="Process images from Google Drive (convert HEIC/HEIF or download JPG/JPEG as-is)"
     )
     parser.add_argument(
         '--folder-id',
         required=True,
-        help='Google Drive folder ID containing HEIC files'
+        help='Google Drive folder ID containing image files'
     )
     parser.add_argument(
         '--output',
-        default='./converted_photos',
-        help='Output directory for converted images (default: ./converted_photos)'
+        default='./processed_photos',
+        help='Output directory for processed images (default: ./processed_photos)'
     )
     parser.add_argument(
         '--format',
         default='JPEG',
         choices=['JPEG', 'PNG', 'WEBP'],
-        help='Target format for conversion (default: JPEG)'
+        help='Target format for HEIC conversion (default: JPEG)'
     )
     parser.add_argument(
         '--quality',
@@ -165,7 +174,7 @@ def main():
         default=100,
         choices=range(1, 101),
         metavar="[1-100]",
-        help='Quality setting (1-100, default: 100)'
+        help='Quality setting for conversion (1-100, default: 100)'
     )
     parser.add_argument(
         '--subsampling',
@@ -177,14 +186,14 @@ def main():
     
     args = parser.parse_args()
     
-    converter = GoogleDriveHEICConverter(
+    processor = GoogleDriveImageProcessor(
         output_folder=args.output,
         target_format=args.format,
         quality=args.quality,
         subsampling=args.subsampling
     )
     
-    converter.process_folder(args.folder_id)
+    processor.process_folder(args.folder_id)
 
 if __name__ == '__main__':
     main()
