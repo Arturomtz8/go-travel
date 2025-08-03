@@ -307,5 +307,7 @@ pyrightconfig.json
 
 
 .streamlit
-
+*.jpeg
+*.jpg
+*.heic
 # End of https://www.toptal.com/developers/gitignore/api/python
